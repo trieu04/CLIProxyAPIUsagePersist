@@ -1,0 +1,12 @@
+services:
+  usage-persist:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - usage-persist-data:/data
+    restart: unless-stopped
+
+volumes:
+  usage-persist-data:
