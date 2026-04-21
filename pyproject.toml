@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cliproxyapi-usage-persist"
+version = "0.1.0"
+description = "Persist and reconcile CLIProxyAPI usage snapshots"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "CLIProxyAPIUsagePersist Maintainers" }]
+dependencies = []
+
+[project.scripts]
+cliproxyapi-usage-persist = "cliproxyapi_usage_persist.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
