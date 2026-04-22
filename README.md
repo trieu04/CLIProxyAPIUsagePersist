@@ -1,20 +1,23 @@
 # CLIProxyAPI Usage Persist
 
-Python-only Dockerized service that periodically exports usage data from CLIProxyAPI, merges it with a persisted snapshot, and imports the merged snapshot back only when the merged snapshot is fuller.
+[![Docker Hub](https://img.shields.io/badge/docker%20hub-trieu04%2Fcli--proxy--api--usage--persist-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/trieu04/cli-proxy-api-usage-persist)
+[![Docker Image Version](https://img.shields.io/docker/v/trieu04/cli-proxy-api-usage-persist?sort=semver&label=image)](https://hub.docker.com/r/trieu04/cli-proxy-api-usage-persist/tags)
+[![Docker Pulls](https://img.shields.io/docker/pulls/trieu04/cli-proxy-api-usage-persist)](https://hub.docker.com/r/trieu04/cli-proxy-api-usage-persist)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-## What it does
+`CLIProxyAPI Usage Persist` is a small Python service that keeps CLIProxyAPI usage data durable across restarts. It periodically exports usage data from a CLIProxyAPI instance, merges that export with a local persisted snapshot, and imports the merged snapshot back only when the merged result is fuller than the server copy.
 
-- Normalizes the configured base URL the same way as the CLIProxyAPI Management Center.
-- Calls the management API with `Authorization: Bearer <key>`.
-- Exports `GET /v0/management/usage/export`.
-- Persists a single JSON snapshot atomically at `/data/usage-snapshot.json` by default.
-- Rebuilds aggregate totals from deduped request details instead of trusting incoming totals.
-- Runs startup reconcile once, then repeats every `SYNC_INTERVAL_SECONDS` seconds.
-- Imports `POST /v0/management/usage/import` only when the merged snapshot has more unique request details than the server export.
+## Features
 
-## Required CLIProxyAPI settings
+- Works with CLIProxyAPI management endpoints over HTTP.
+- Persists usage data locally in a durable JSON snapshot.
+- Rebuilds totals from deduplicated request details instead of trusting incoming aggregates.
+- Performs one reconcile pass at startup, then repeats on a configurable interval.
+- Avoids unnecessary imports by only writing back when the merged snapshot contains more unique usage details.
 
-The target CLIProxyAPI instance must expose management endpoints and usage data:
+## Requirements
+
+The target CLIProxyAPI instance must expose management endpoints and usage statistics:
 
 ```yaml
 usage-statistics-enabled: true
@@ -27,10 +30,50 @@ remote-management:
 Notes:
 
 - `remote-management.secret-key` is required for management endpoints to exist.
-- `remote-management.allow-remote: true` is required when this container runs separately from CLIProxyAPI.
-- If both containers share the same network namespace or host loopback, keep the base URL aligned with that topology.
+- `remote-management.allow-remote: true` is required when this service runs outside the main CLIProxyAPI process.
+- Keep `CLIPROXYAPI_BASE_URL` aligned with your network topology. If both services run in the same Docker network, use the service hostname.
 
-## Environment
+## Quick start with Docker Compose
+
+1. Copy the example environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Update at least these values in `.env`:
+
+   - `CLIPROXYAPI_BASE_URL`
+   - `CLIPROXYAPI_MANAGEMENT_KEY`
+
+3. Start the service:
+
+   ```bash
+   docker compose up -d
+   ```
+
+The included `docker-compose.yml` uses the published Docker Hub image `trieu04/cli-proxy-api-usage-persist:latest` and mounts a named volume at `/data`, so `usage-snapshot.json` survives container restarts.
+
+## Docker image
+
+Use either the moving `latest` tag or a versioned release tag:
+
+```bash
+docker pull trieu04/cli-proxy-api-usage-persist:latest
+docker pull trieu04/cli-proxy-api-usage-persist:v0.1.0
+```
+
+Example:
+
+```bash
+docker run --rm \
+  -e CLIPROXYAPI_BASE_URL=http://your-cli-proxy-api:8317 \
+  -e CLIPROXYAPI_MANAGEMENT_KEY=your-management-secret \
+  -v usage-persist-data:/data \
+  trieu04/cli-proxy-api-usage-persist:latest
+```
+
+## Environment variables
 
 Copy `.env.example` to `.env` and fill in the values.
 
@@ -45,7 +88,9 @@ Copy `.env.example` to `.env` and fill in the values.
 | `RETRY_BASE_DELAY_SECONDS` | no | `1` | Base exponential backoff delay. |
 | `RETRY_MAX_DELAY_SECONDS` | no | `8` | Maximum backoff delay. |
 
-## Local run
+## Local development
+
+Run locally without Docker:
 
 ```bash
 python -m venv .venv
@@ -54,16 +99,23 @@ pip install -e .
 cliproxyapi-usage-persist
 ```
 
-## Docker
+Build a local image manually if you want to test changes before publishing:
 
 ```bash
-cp .env.example .env
-docker compose up --build
+docker build -t cliproxyapi-usage-persist:dev .
 ```
 
-The compose file mounts a named volume to `/data`, so `usage-snapshot.json` survives container restarts.
+Then run that local image directly:
 
-## Entrypoints and runtime flow
+```bash
+docker run --rm \
+  -e CLIPROXYAPI_BASE_URL=http://your-cli-proxy-api:8317 \
+  -e CLIPROXYAPI_MANAGEMENT_KEY=your-management-secret \
+  -v usage-persist-data:/data \
+  cliproxyapi-usage-persist:dev
+```
+
+## How it works
 
 - Console entrypoint: `cliproxyapi-usage-persist`
 - Module entrypoint: `python -m src`
@@ -72,7 +124,7 @@ The compose file mounts a named volume to `/data`, so `usage-snapshot.json` surv
 - Sync loop: `src/service.py`
 - Management API client: `src/management_client.py`
 
-At startup, the service loads environment-backed config, normalizes the CLIProxyAPI management URL, exports the current usage snapshot, merges it with the persisted local snapshot, saves the merged result locally, and imports back to CLIProxyAPI only when the merged snapshot contains more deduped request details than the exported snapshot. After the startup reconcile, it repeats the same cycle every `SYNC_INTERVAL_SECONDS` seconds.
+At startup, the service loads environment-backed config, normalizes the CLIProxyAPI management URL, exports the current usage snapshot, merges it with the persisted local snapshot, saves the merged result locally, and imports back to CLIProxyAPI only when the merged snapshot contains more deduplicated request details than the exported snapshot. After the startup reconcile, it repeats the same cycle every `SYNC_INTERVAL_SECONDS` seconds.
 
 ## Merge semantics
 
@@ -81,58 +133,12 @@ At startup, the service loads environment-backed config, normalizes the CLIProxy
 - Empty model names become `unknown`, negative latency becomes `0`, and token totals are recomputed the same way as the server.
 - “Fuller” means the merged snapshot contains more unique request details after server-compatible dedup than the latest export from CLIProxyAPI.
 
-## Test
+## Testing
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Published image
+## License
 
-When a release tag like `v0.1.0` is pushed, GitHub Actions can publish a Docker image to Docker Hub with two tags:
-
-- `latest`
-- the exact Git tag, for example `v0.1.0`
-
-Pull and run the published image like this:
-
-```bash
-docker pull <dockerhub-repo>:v0.1.0
-
-docker run --rm \
-  -e CLIPROXYAPI_BASE_URL=http://your-cli-proxy-api:8317 \
-  -e CLIPROXYAPI_MANAGEMENT_KEY=your-management-secret \
-  -v usage-persist-data:/data \
-  <dockerhub-repo>:v0.1.0
-```
-
-Replace `<dockerhub-repo>` with your configured Docker Hub repository, for example `your-org/cliproxyapi-usage-persist`.
-
-## Release automation
-
-This project can ship from `.github/workflows/release.yml` with a tag-driven release flow:
-
-1. Push a Git tag matching `v*`, for example `v0.1.0`
-2. GitHub Actions builds the Docker image from the current `Dockerfile`
-3. The workflow pushes `latest` and `${GITHUB_REF_NAME}` tags to Docker Hub
-4. The workflow generates release notes from commits since the previous `v*` tag
-5. The workflow creates a GitHub Release for the same tag
-
-Required GitHub repository configuration:
-
-- Repository variable: `DOCKERHUB_REPO` with the full Docker Hub repository name in `namespace/repository` format
-- Repository secret: `DOCKERHUB_USERNAME`
-- Repository secret: `DOCKERHUB_TOKEN`
-
-`GITHUB_TOKEN` is provided automatically by GitHub Actions for release creation.
-
-This workflow publishes the container image only. It does not publish the Python package anywhere, so if you use Git tags as release versions you should keep `pyproject.toml` version aligned manually.
-
-On the first tagged release, the generated release notes include all commits reachable from that tag because there is no previous `v*` tag to diff against.
-
-Example release commands:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).
