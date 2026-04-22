@@ -20,7 +20,7 @@ class ManagementClientLike(Protocol):
 class SnapshotStoreLike(Protocol):
     def load(self) -> dict[str, object]: ...
 
-    def save(self, snapshot: dict[str, object]) -> None: ...
+    def save(self, snapshot: dict[str, object], *, snapshot_already_normalized: bool = False) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -67,10 +67,14 @@ class UsagePersistService:
             raise TypeError("export response missing usage object")
         exported_snapshot = rebuild_snapshot(exported_usage)
         persisted_snapshot = self.store.load()
-        merged_snapshot, merge_result = merge_snapshots(exported_snapshot, persisted_snapshot)
-        exported_unique = deduped_unique_request_count(exported_snapshot)
-        merged_unique = deduped_unique_request_count(merged_snapshot)
-        self.store.save(merged_snapshot)
+        merged_snapshot, merge_result = merge_snapshots(
+            exported_snapshot,
+            persisted_snapshot,
+            inputs_already_normalized=True,
+        )
+        exported_unique = deduped_unique_request_count(exported_snapshot, snapshot_already_normalized=True)
+        merged_unique = deduped_unique_request_count(merged_snapshot, snapshot_already_normalized=True)
+        self.store.save(merged_snapshot, snapshot_already_normalized=True)
 
         import_performed = merged_unique > exported_unique
         if import_performed:

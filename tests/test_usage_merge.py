@@ -1,6 +1,6 @@
 import unittest
 
-from src.cliproxyapi_usage_persist.usage_merge import (
+from src.usage_merge import (
     _canonical_timestamp,
     deduped_unique_request_count,
     merge_snapshots,
@@ -42,6 +42,24 @@ class UsageMergeTests(unittest.TestCase):
         second = {"apis": {"key": {"models": {"gpt-5.4": {"details": [_detail("2026-03-20T12:00:00Z", latency_ms=2500)]}}}}}
         merged, counts = merge_snapshots(first, second)
         self.assertEqual(unique_request_count(merged), 1)
+        self.assertEqual(counts, {"added": 1, "skipped": 1})
+
+    def test_merge_snapshots_accepts_pre_normalized_inputs_without_rebuilding(self) -> None:
+        normalized_first = rebuild_snapshot(
+            {"apis": {"key": {"models": {"gpt-5.4": {"details": [_detail("2026-03-20T12:00:00Z", latency_ms=0)]}}}}}
+        )
+        normalized_second = rebuild_snapshot(
+            {"apis": {"key": {"models": {"gpt-5.4": {"details": [_detail("2026-03-20T12:00:00Z", latency_ms=2500)]}}}}}
+        )
+
+        merged, counts = merge_snapshots(
+            normalized_first,
+            normalized_second,
+            inputs_already_normalized=True,
+        )
+
+        self.assertEqual(unique_request_count(merged, snapshot_already_normalized=True), 1)
+        self.assertEqual(deduped_unique_request_count(merged, snapshot_already_normalized=True), 1)
         self.assertEqual(counts, {"added": 1, "skipped": 1})
 
     def test_deduped_unique_request_count_collapses_go_equivalent_duplicates(self) -> None:

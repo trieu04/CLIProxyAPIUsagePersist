@@ -4,8 +4,8 @@ import unittest
 from email.message import Message
 from typing import cast
 
-from src.cliproxyapi_usage_persist.management_client import ManagementClient
-from src.cliproxyapi_usage_persist.retry import ManagementApiError
+from src.management_client import ManagementClient
+from src.retry import ManagementApiError
 
 
 class FakeResponse:

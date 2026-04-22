@@ -1,7 +1,7 @@
 import urllib.error
 import unittest
 
-from src.cliproxyapi_usage_persist.retry import ManagementApiError, is_transient_failure, retry_call
+from src.retry import ManagementApiError, is_transient_failure, retry_call
 
 
 class RetryTests(unittest.TestCase):

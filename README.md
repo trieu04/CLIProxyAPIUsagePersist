@@ -66,11 +66,11 @@ The compose file mounts a named volume to `/data`, so `usage-snapshot.json` surv
 ## Entrypoints and runtime flow
 
 - Console entrypoint: `cliproxyapi-usage-persist`
-- Module entrypoint: `python -m cliproxyapi_usage_persist`
-- Bootstrap path: `src/cliproxyapi_usage_persist/main.py`
-- Config loader: `src/cliproxyapi_usage_persist/config.py`
-- Sync loop: `src/cliproxyapi_usage_persist/service.py`
-- Management API client: `src/cliproxyapi_usage_persist/management_client.py`
+- Module entrypoint: `python -m src`
+- Bootstrap path: `src/main.py`
+- Config loader: `src/config.py`
+- Sync loop: `src/service.py`
+- Management API client: `src/management_client.py`
 
 At startup, the service loads environment-backed config, normalizes the CLIProxyAPI management URL, exports the current usage snapshot, merges it with the persisted local snapshot, saves the merged result locally, and imports back to CLIProxyAPI only when the merged snapshot contains more deduped request details than the exported snapshot. After the startup reconcile, it repeats the same cycle every `SYNC_INTERVAL_SECONDS` seconds.
 

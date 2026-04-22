@@ -1,6 +1,6 @@
 import unittest
 
-from src.cliproxyapi_usage_persist.connection import compute_management_url, normalize_api_base
+from src.connection import compute_management_url, normalize_api_base
 
 
 class ConnectionTests(unittest.TestCase):

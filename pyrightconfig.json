@@ -4,7 +4,11 @@
   "executionEnvironments": [
     {
       "root": ".",
-      "extraPaths": ["src"]
+      "extraPaths": [".", "/home/devt/vibes/CLIProxyAPI/CLIProxyAPIUsagePersist"]
+    },
+    {
+      "root": "tests",
+      "extraPaths": [".", "..", "/home/devt/vibes/CLIProxyAPI/CLIProxyAPIUsagePersist"]
     }
   ]
 }

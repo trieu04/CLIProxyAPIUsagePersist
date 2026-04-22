@@ -12,10 +12,9 @@ authors = [{ name = "CLIProxyAPIUsagePersist Maintainers" }]
 dependencies = []
 
 [project.scripts]
-cliproxyapi-usage-persist = "cliproxyapi_usage_persist.main:main"
+cliproxyapi-usage-persist = "src.main:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]

@@ -1,7 +1,7 @@
 import unittest
 from typing import cast
 
-from src.cliproxyapi_usage_persist.service import ManagementClientLike, SnapshotStoreLike, UsagePersistService
+from src.service import ManagementClientLike, SnapshotStoreLike, UsagePersistService
 
 
 def _snapshot(timestamp: str) -> dict[str, object]:
@@ -44,13 +44,15 @@ class FakeStore:
     def __init__(self, initial: dict[str, object]) -> None:
         self.current = initial
         self.saved: list[dict[str, object]] = []
+        self.save_flags: list[bool] = []
 
     def load(self) -> dict[str, object]:
         return self.current
 
-    def save(self, snapshot: dict[str, object]) -> None:
+    def save(self, snapshot: dict[str, object], *, snapshot_already_normalized: bool = False) -> None:
         self.current = snapshot
         self.saved.append(snapshot)
+        self.save_flags.append(snapshot_already_normalized)
 
 
 class ServiceTests(unittest.TestCase):
@@ -72,6 +74,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result.merged_unique_requests, 2)
         self.assertEqual(len(client.imported), 1)
         self.assertEqual(store.saved[-1]["total_requests"], 2)
+        self.assertTrue(store.save_flags[-1])
 
     def test_periodic_cycle_skips_import_when_remote_already_full(self) -> None:
         snapshot = _snapshot("2026-03-20T12:00:00Z")

@@ -33,6 +33,14 @@ def empty_snapshot() -> dict[str, Any]:
     return {key: (value.copy() if isinstance(value, dict) else value) for key, value in EMPTY_SNAPSHOT.items()}
 
 
+def _finalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    for api_snapshot in snapshot["apis"].values():
+        for model_snapshot in api_snapshot["models"].values():
+            for detail in model_snapshot["details"]:
+                detail.pop("_hour", None)
+    return snapshot
+
+
 def normalize_token_stats(tokens: dict[str, Any] | None) -> dict[str, int]:
     data = dict(tokens or {})
     normalized = {
@@ -120,6 +128,47 @@ def _append_detail(target: dict[str, Any], api_name: str, model_name: str, detai
     target["tokens_by_hour"][hour_key] = target["tokens_by_hour"].get(hour_key, 0) + total_tokens
 
 
+def _iter_snapshot_details(
+    snapshot: dict[str, Any] | None,
+    *,
+    already_normalized: bool = False,
+    now: datetime | None = None,
+):
+    current = now or datetime.now(timezone.utc)
+    for raw_api_name, api_snapshot in dict((snapshot or {}).get("apis", {})).items():
+        api_name = str(raw_api_name or "").strip()
+        if not api_name:
+            continue
+        models = dict((api_snapshot or {}).get("models", {}))
+        for raw_model_name, model_snapshot in models.items():
+            model_name = str(raw_model_name or "").strip() or "unknown"
+            for raw_detail in list((model_snapshot or {}).get("details", [])):
+                detail = dict(raw_detail or {})
+                if already_normalized:
+                    timestamp_text = str(detail.get("timestamp", "") or "")
+                    normalized = {
+                        "timestamp": timestamp_text,
+                        "latency_ms": max(int(detail.get("latency_ms", 0) or 0), 0),
+                        "source": str(detail.get("source", "") or ""),
+                        "auth_index": str(detail.get("auth_index", "") or ""),
+                        "tokens": normalize_token_stats(detail.get("tokens")),
+                        "failed": bool(detail.get("failed", False)),
+                        "_hour": int(timestamp_text[11:13]),
+                    }
+                else:
+                    timestamp_text, timestamp_dt = _canonical_timestamp(detail.get("timestamp"), current)
+                    normalized = {
+                        "timestamp": timestamp_text,
+                        "latency_ms": max(int(detail.get("latency_ms", 0) or 0), 0),
+                        "source": str(detail.get("source", "") or ""),
+                        "auth_index": str(detail.get("auth_index", "") or ""),
+                        "tokens": normalize_token_stats(detail.get("tokens")),
+                        "failed": bool(detail.get("failed", False)),
+                        "_hour": timestamp_dt.hour,
+                    }
+                yield api_name, model_name, normalized
+
+
 def detail_key(api_name: str, model_name: str, detail: dict[str, Any]) -> str:
     tokens = detail["tokens"]
     parts = [
@@ -140,58 +189,37 @@ def detail_key(api_name: str, model_name: str, detail: dict[str, Any]) -> str:
 
 def rebuild_snapshot(snapshot: dict[str, Any] | None, *, now: datetime | None = None) -> dict[str, Any]:
     result = empty_snapshot()
-    current = now or datetime.now(timezone.utc)
-    for raw_api_name, api_snapshot in dict((snapshot or {}).get("apis", {})).items():
-        api_name = str(raw_api_name or "").strip()
-        if not api_name:
-            continue
-        models = dict((api_snapshot or {}).get("models", {}))
-        for raw_model_name, model_snapshot in models.items():
-            model_name = str(raw_model_name or "").strip() or "unknown"
-            for raw_detail in list((model_snapshot or {}).get("details", [])):
-                detail = dict(raw_detail or {})
-                timestamp_text, timestamp_dt = _canonical_timestamp(detail.get("timestamp"), current)
-                normalized = {
-                    "timestamp": timestamp_text,
-                    "latency_ms": max(int(detail.get("latency_ms", 0) or 0), 0),
-                    "source": str(detail.get("source", "") or ""),
-                    "auth_index": str(detail.get("auth_index", "") or ""),
-                    "tokens": normalize_token_stats(detail.get("tokens")),
-                    "failed": bool(detail.get("failed", False)),
-                    "_hour": timestamp_dt.hour,
-                }
-                _append_detail(result, api_name, model_name, normalized)
-    for api_snapshot in result["apis"].values():
-        for model_snapshot in api_snapshot["models"].values():
-            for detail in model_snapshot["details"]:
-                detail.pop("_hour", None)
-    return result
+    for api_name, model_name, detail in _iter_snapshot_details(snapshot, now=now):
+        _append_detail(result, api_name, model_name, detail)
+    return _finalize_snapshot(result)
 
 
-def merge_snapshots(base: dict[str, Any] | None, incoming: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, int]]:
+def merge_snapshots(
+    base: dict[str, Any] | None,
+    incoming: dict[str, Any] | None,
+    *,
+    inputs_already_normalized: bool = False,
+) -> tuple[dict[str, Any], dict[str, int]]:
     merged = empty_snapshot()
     counts = {"added": 0, "skipped": 0}
     seen: set[str] = set()
-    for source in (rebuild_snapshot(base), rebuild_snapshot(incoming)):
-        for api_name, api_snapshot in source["apis"].items():
-            for model_name, model_snapshot in api_snapshot["models"].items():
-                for detail in model_snapshot["details"]:
-                    key = detail_key(api_name, model_name, detail)
-                    if key in seen:
-                        counts["skipped"] += 1
-                        continue
-                    seen.add(key)
-                    _append_detail(merged, api_name, model_name, {**detail, "_hour": int(detail["timestamp"][11:13])})
-                    counts["added"] += 1
-    for api_snapshot in merged["apis"].values():
-        for model_snapshot in api_snapshot["models"].values():
-            for detail in model_snapshot["details"]:
-                detail.pop("_hour", None)
-    return merged, counts
+    for source in (base, incoming):
+        for api_name, model_name, detail in _iter_snapshot_details(
+            source,
+            already_normalized=inputs_already_normalized,
+        ):
+            key = detail_key(api_name, model_name, detail)
+            if key in seen:
+                counts["skipped"] += 1
+                continue
+            seen.add(key)
+            _append_detail(merged, api_name, model_name, detail)
+            counts["added"] += 1
+    return _finalize_snapshot(merged), counts
 
 
-def unique_request_count(snapshot: dict[str, Any] | None) -> int:
-    rebuilt = rebuild_snapshot(snapshot)
+def unique_request_count(snapshot: dict[str, Any] | None, *, snapshot_already_normalized: bool = False) -> int:
+    rebuilt = snapshot if snapshot_already_normalized and snapshot is not None else rebuild_snapshot(snapshot)
     return sum(
         len(model_snapshot["details"])
         for api_snapshot in rebuilt["apis"].values()
@@ -199,8 +227,8 @@ def unique_request_count(snapshot: dict[str, Any] | None) -> int:
     )
 
 
-def deduped_unique_request_count(snapshot: dict[str, Any] | None) -> int:
-    rebuilt = rebuild_snapshot(snapshot)
+def deduped_unique_request_count(snapshot: dict[str, Any] | None, *, snapshot_already_normalized: bool = False) -> int:
+    rebuilt = snapshot if snapshot_already_normalized and snapshot is not None else rebuild_snapshot(snapshot)
     seen: set[str] = set()
     for api_name, api_snapshot in rebuilt["apis"].items():
         for model_name, model_snapshot in api_snapshot["models"].items():
