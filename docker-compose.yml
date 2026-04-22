@@ -1,9 +1,13 @@
 services:
   usage-persist:
+    image: ${CLIPROXYAPI_USAGE_PERSIST_IMAGE:-trieu04/cli-proxy-api-usage-persist:latest}
     build: .
     env_file:
       - path: .env
         required: false
+    environment:
+      CLIPROXYAPI_MANAGEMENT_KEY: ${CLIPROXYAPI_MANAGEMENT_KEY:-}
+      CLIPROXYAPI_MANAGEMENT_URL: ${CLIPROXYAPI_MANAGEMENT_URL:-}
     volumes:
       - usage-persist-data:/data
     restart: unless-stopped

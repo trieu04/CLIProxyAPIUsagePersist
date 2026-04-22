@@ -73,6 +73,7 @@ jobs:
 
           : > release-notes.md
           printf 'Docker image: `%s:%s`\n\n' "${DOCKERHUB_REPO}" "${current_tag}" >> release-notes.md
+          printf '[Docker Hub](https://hub.docker.com/r/router-for-me/cli-proxy-api)\n' >> release-notes.md
           git log --pretty=format:'- %h %s' "${range}" >> release-notes.md
 
       - name: Create Release
